@@ -42,7 +42,7 @@ struct DebugPanelView: View {
             Text(model.state.rawValue).font(.headline)
             Spacer()
             Label(model.project?.name ?? "no project", systemImage: "folder")
-                .foregroundStyle(model.project?.isTrusted == true ? .primary : .orange)
+                .foregroundStyle(model.project?.isTrusted == true ? Color.primary : Color.orange)
                 .help(model.project.map { "\($0.rootPath)\nconfidence \(Int($0.confidence * 100))% via \($0.signals.map(\.rawValue).joined(separator: ", "))" } ?? "Select a project from the menu")
             Text("voice: \(model.voiceProviderName) · agent: \(model.agentProviderName) · reflex: \(model.fastProviderName)")
                 .font(.caption).foregroundStyle(.secondary)
@@ -57,7 +57,7 @@ struct DebugPanelView: View {
                     ForEach(model.transcript) { turn in
                         HStack(alignment: .top) {
                             Text(turn.speaker == .user ? "you" : "grok")
-                                .font(.caption.weight(.semibold)).foregroundStyle(turn.speaker == .user ? .blue : .purple)
+                                .font(.caption.weight(.semibold)).foregroundStyle(turn.speaker == .user ? Color.blue : Color.purple)
                                 .frame(width: 36, alignment: .trailing)
                             Text(turn.text).textSelection(.enabled)
                         }
@@ -125,7 +125,7 @@ struct DebugPanelView: View {
                     HStack {
                         Text(a.task.title).font(.headline)
                         Spacer()
-                        Text(a.state.rawValue + (a.undone ? " · undone" : "")).font(.caption).foregroundStyle(a.state == .failed ? .red : .secondary)
+                        Text(a.state.rawValue + (a.undone ? " · undone" : "")).font(.caption).foregroundStyle(a.state == .failed ? Color.red : Color.secondary)
                     }
                     Text("checkpoint \(a.checkpointID) · \(a.task.executionTarget.rawValue) · \(a.changedFiles.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary)
                     if let s = a.summary { Text(s).font(.caption) }
@@ -167,7 +167,7 @@ struct DebugPanelView: View {
                     HStack {
                         Text(stage.rawValue)
                         Spacer()
-                        Text(String(format: "%.0f ms", ms)).monospacedDigit().foregroundStyle(ms > 800 ? .orange : .primary)
+                        Text(String(format: "%.0f ms", ms)).monospacedDigit().foregroundStyle(ms > 800 ? Color.orange : Color.primary)
                     }
                 }
             }
@@ -180,7 +180,7 @@ struct DebugPanelView: View {
                 ForEach(Array(model.logLines.suffix(200).enumerated()), id: \.offset) { _, e in
                     Text("\(e.level.label) \(e.component): \(e.message) \(e.fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(e.level >= .warn ? .orange : .secondary)
+                        .foregroundStyle(e.level >= .warn ? Color.orange : Color.secondary)
                 }
             }
             .padding(8)

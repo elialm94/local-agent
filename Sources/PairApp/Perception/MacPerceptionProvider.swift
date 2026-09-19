@@ -9,8 +9,11 @@ import ScreenCaptureKit
 /// on-demand ScreenCaptureKit crops. Everything stays local.
 ///
 /// Coordinate convention: `WorldState` uses top-left-origin global points, the
-/// same as the Accessibility API. `NSEvent.mouseLocation` is bottom-left and is
-/// converted on entry.
+/// same as the Accessibility and Quartz (CGEvent) APIs. AppKit is bottom-left;
+/// `flipY` converts at the UI boundary.
+///
+/// Everything here runs on a background queue, so only thread-safe APIs are
+/// used (AX, CoreGraphics, NSRunningApplication) — no NSWorkspace/NSScreen/NSEvent.
 final class MacPerceptionProvider: PerceptionProvider, @unchecked Sendable {
     let name = "macos"
 
@@ -86,8 +89,10 @@ final class MacPerceptionProvider: PerceptionProvider, @unchecked Sendable {
             guard let display = content.displays.first(where: { $0.frame.contains(center) }) ?? content.displays.first else { return nil }
             let filter = SCContentFilter(display: display, excludingWindows: [])
             let cfg = SCStreamConfiguration()
-            let appKitCenter = Self.flipY(rect.center)
-            let scale = NSScreen.screens.first(where: { $0.frame.contains(appKitCenter) })?.backingScaleFactor ?? 2
+            let scale: CGFloat = {
+                guard let mode = CGDisplayCopyDisplayMode(display.displayID), display.width > 0 else { return 2 }
+                return CGFloat(mode.pixelWidth) / CGFloat(display.width)
+            }()
             let local = CGRect(x: rect.x - display.frame.origin.x, y: rect.y - display.frame.origin.y, width: rect.width, height: rect.height)
                 .intersection(CGRect(origin: .zero, size: display.frame.size))
             guard !local.isNull, local.width > 2, local.height > 2 else { return nil }
@@ -126,13 +131,14 @@ final class MacPerceptionProvider: PerceptionProvider, @unchecked Sendable {
     private func tick() {
         guard Self.accessibilityTrusted else { return }
         let pointer = Self.currentPointer()
-        let app = NSWorkspace.shared.frontmostApplication
-        let appInfo = app.map { ApplicationInfo(name: $0.localizedName ?? "?", bundleID: $0.bundleIdentifier, pid: $0.processIdentifier) }
-
+        var appInfo: ApplicationInfo?
         var windowInfo: WindowInfo?
         var url: String?
-        if let pid = app?.processIdentifier {
-            let axApp = AXUIElementCreateApplication(pid)
+        if let axApp = elementAttribute(systemWide, kAXFocusedApplicationAttribute) {
+            var pid: pid_t = 0
+            _ = AXUIElementGetPid(axApp, &pid)
+            let running = NSRunningApplication(processIdentifier: pid)
+            appInfo = ApplicationInfo(name: running?.localizedName ?? "?", bundleID: running?.bundleIdentifier, pid: pid)
             if let win = elementAttribute(axApp, kAXFocusedWindowAttribute) {
                 windowInfo = WindowInfo(title: attribute(win, kAXTitleAttribute) as String?, bounds: bounds(of: win) ?? .zero)
                 url = attribute(win, "AXDocument") as String?
@@ -178,17 +184,22 @@ final class MacPerceptionProvider: PerceptionProvider, @unchecked Sendable {
 
     // MARK: Accessibility helpers
 
-    static func currentPointer() -> Point { flipY(NSEvent.mouseLocation) }
+    /// Quartz event location is already top-left global, no conversion needed.
+    static func currentPointer() -> Point {
+        let loc = CGEvent(source: nil)?.location ?? .zero
+        return Point(x: loc.x, y: loc.y)
+    }
 
-    /// Convert between AppKit (bottom-left) and Accessibility (top-left) global coordinates.
+    /// Convert between AppKit (bottom-left) and Accessibility/Quartz (top-left)
+    /// global coordinates using the main display's height (thread-safe).
+    static var mainDisplayHeight: CGFloat { CGDisplayBounds(CGMainDisplayID()).height }
+
     static func flipY(_ p: CGPoint) -> Point {
-        let h = NSScreen.screens.first?.frame.height ?? 0
-        return Point(x: p.x, y: h - p.y)
+        Point(x: p.x, y: mainDisplayHeight - p.y)
     }
 
     static func flipY(_ p: Point) -> CGPoint {
-        let h = NSScreen.screens.first?.frame.height ?? 0
-        return CGPoint(x: p.x, y: h - p.y)
+        CGPoint(x: p.x, y: mainDisplayHeight - p.y)
     }
 
     private func element(at point: Point) -> AXUIElement? {

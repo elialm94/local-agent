@@ -22,7 +22,7 @@ struct SettingsView: View {
             Section("Cursor CLI") {
                 TextField("Path to `agent` (blank = search PATH and ~/.local/bin)", text: $agentPath)
                 Text(model.agentProviderName == "cursor-cli" ? "Cursor CLI detected." : "Cursor CLI not detected — the mock agent is in use. Install with: curl https://cursor.com/install -fsS | bash, then run `agent login`.")
-                    .font(.caption).foregroundStyle(model.agentProviderName == "cursor-cli" ? .green : .orange)
+                    .font(.caption).foregroundStyle(model.agentProviderName == "cursor-cli" ? Color.green : Color.orange)
             }
             Section("Permissions") {
                 permissionRow("Accessibility (global shortcut, reading UI elements)", model.permissions.accessibility)
@@ -51,7 +51,7 @@ struct SettingsView: View {
 
     private func permissionRow(_ title: String, _ granted: Bool) -> some View {
         HStack {
-            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle").foregroundStyle(granted ? .green : .red)
+            Image(systemName: granted ? "checkmark.circle.fill" : "xmark.circle").foregroundStyle(granted ? Color.green : Color.red)
             Text(title)
         }
     }

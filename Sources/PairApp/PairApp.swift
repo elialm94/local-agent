@@ -159,7 +159,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+@main
+@MainActor
+enum PairMain {
+    // Kept alive for the process lifetime; NSApplication holds its delegate weakly.
+    private static var delegate: AppDelegate?
+
+    static func main() {
+        let app = NSApplication.shared
+        let d = AppDelegate()
+        delegate = d
+        app.delegate = d
+        app.run()
+    }
+}

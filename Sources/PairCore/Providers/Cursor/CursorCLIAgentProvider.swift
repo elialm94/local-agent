@@ -14,6 +14,7 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
     public var extraArguments: [String] = []
 
     private let lock = NSLock()
+    private let ioQueue = DispatchQueue(label: "pair.cursor-cli.io")
     private var runs: [String: RunState] = [:]
 
     private final class RunState {
@@ -63,26 +64,36 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
 
+        // All reads, parsing and the final `finished` event go through one serial
+        // queue so events are delivered in stream order (a readability callback
+        // must never race the termination handler).
+        let io = ioQueue
         out.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            let data = fh.availableData
-            guard let self else { return }
-            if data.isEmpty { fh.readabilityHandler = nil; return }
-            self.consume(runID: runID, data: data, onEvent: onEvent)
+            io.async {
+                guard let self else { return }
+                let data = fh.availableData
+                if data.isEmpty { fh.readabilityHandler = nil; return }
+                self.consume(runID: runID, data: data, onEvent: onEvent)
+            }
         }
         err.fileHandleForReading.readabilityHandler = { [weak self] fh in
-            let data = fh.availableData
-            guard let self else { return }
-            if data.isEmpty { fh.readabilityHandler = nil; return }
-            self.lock.lock(); self.runs[runID]?.stderr.append(data); self.lock.unlock()
+            io.async {
+                guard let self else { return }
+                let data = fh.availableData
+                if data.isEmpty { fh.readabilityHandler = nil; return }
+                self.lock.lock(); self.runs[runID]?.stderr.append(data); self.lock.unlock()
+            }
         }
         process.terminationHandler = { [weak self] p in
-            out.fileHandleForReading.readabilityHandler = nil
-            err.fileHandleForReading.readabilityHandler = nil
-            // Drain anything left in the pipes.
-            let rest = out.fileHandleForReading.readDataToEndOfFile()
-            if !rest.isEmpty { self?.consume(runID: runID, data: rest, onEvent: onEvent) }
-            let errRest = err.fileHandleForReading.readDataToEndOfFile()
-            self?.finish(runID: runID, exitCode: p.terminationStatus, extraStderr: errRest, onEvent: onEvent)
+            io.async {
+                out.fileHandleForReading.readabilityHandler = nil
+                err.fileHandleForReading.readabilityHandler = nil
+                // Drain anything left in the pipes.
+                let rest = out.fileHandleForReading.readDataToEndOfFile()
+                if !rest.isEmpty { self?.consume(runID: runID, data: rest, onEvent: onEvent) }
+                let errRest = err.fileHandleForReading.readDataToEndOfFile()
+                self?.finish(runID: runID, exitCode: p.terminationStatus, extraStderr: errRest, onEvent: onEvent)
+            }
         }
 
         LatencyTracer.shared.begin(.agentStart, key: runID)

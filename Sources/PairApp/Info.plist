@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Pair</string>
+	<key>CFBundleExecutable</key>
+	<string>Pair</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.pair.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Pair</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Pair listens while you hold the talk shortcut so you can speak to the assistant.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Pair captures a small crop around the UI element you point at so the assistant can see it. Nothing is captured while you are not talking to it.</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Pair reads the UI element under your pointer so "this" and "that" refer to the right thing.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Pair does not script other applications.</string>
+</dict>
+</plist>

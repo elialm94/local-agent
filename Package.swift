@@ -37,6 +37,7 @@ targets.append(
         name: "PairApp",
         dependencies: ["PairCore"],
         path: "Sources/PairApp",
+        exclude: ["Info.plist"],
         linkerSettings: [
             .linkedFramework("AppKit"),
             .linkedFramework("SwiftUI"),
@@ -45,6 +46,10 @@ targets.append(
             .linkedFramework("AVFoundation"),
             .linkedFramework("Security"),
             .linkedFramework("Network"),
+            // Embed Info.plist into the bare executable so `swift run Pair` still
+            // has usage descriptions for TCC prompts (mic, screen). The .app bundle
+            // produced by scripts/make-app.sh uses the same file.
+            .unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "Sources/PairApp/Info.plist"]),
         ]
     )
 )

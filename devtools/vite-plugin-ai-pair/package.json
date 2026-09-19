@@ -1,0 +1,16 @@
+{
+  "name": "vite-plugin-ai-pair",
+  "version": "0.1.0",
+  "description": "Dev-only Vite plugin that lets the Pair macOS assistant map hovered UI elements back to source (file:line:component).",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": "./src/index.js",
+  "files": ["src"],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "peerDependencies": {
+    "vite": ">=4"
+  },
+  "license": "MIT"
+}

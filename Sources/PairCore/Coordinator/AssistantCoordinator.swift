@@ -49,7 +49,7 @@ public struct AssistantDependencies {
         perception: PerceptionProvider,
         projectResolver: @escaping @Sendable (WorldState) -> ProjectContext?,
         checkpointStoreFactory: @escaping @Sendable (String) throws -> CheckpointStore,
-        sourceResolver: SourceResolver = CompositeSourceResolver([GrepSourceResolver()])
+        sourceResolver: SourceResolver = CompositeSourceResolver([DevBridgeSourceResolver(), GrepSourceResolver()])
     ) {
         self.voice = voice
         self.reflex = reflex
@@ -161,6 +161,13 @@ public final class AssistantCoordinator: VoiceReasoningDelegate, @unchecked Send
             self.resolveTargetNow(explicit: false)
             LatencyTracer.shared.end(.hotkeyToListening)
         }
+    }
+
+    /// Microphone PCM16 (24 kHz mono) while the hotkey is held. Forwarded
+    /// directly — not queued — so audio never waits behind state work.
+    public func appendAudio(_ pcm16: Data) {
+        guard state == .listening || state == .targeting else { return }
+        deps.voice.appendAudio(pcm16)
     }
 
     public func hotkeyUp() {

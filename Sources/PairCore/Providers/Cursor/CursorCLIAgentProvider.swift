@@ -41,7 +41,7 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
         guard let exe = executablePath else { throw CursorAgentError.cliNotInstalled }
         let runID = "local-" + String(UUID().uuidString.prefix(8)).lowercased()
         let state = RunState(task: RunningAgentTask(id: runID, title: task.title, state: .queued))
-        lock.lock(); runs[runID] = state; lock.unlock()
+        setRun(runID, state)
 
         var args = ["-p", "--force", "--trust", "--workspace", task.projectRoot, "--output-format", "stream-json"]
         if let model { args += ["--model", model] }
@@ -69,30 +69,32 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
         // must never race the termination handler).
         let io = ioQueue
         out.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            guard let provider = self else { return }
             io.async {
-                guard let self else { return }
                 let data = fh.availableData
                 if data.isEmpty { fh.readabilityHandler = nil; return }
-                self.consume(runID: runID, data: data, onEvent: onEvent)
+                provider.consume(runID: runID, data: data, onEvent: onEvent)
             }
         }
         err.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            guard let provider = self else { return }
             io.async {
-                guard let self else { return }
                 let data = fh.availableData
                 if data.isEmpty { fh.readabilityHandler = nil; return }
-                self.lock.lock(); self.runs[runID]?.stderr.append(data); self.lock.unlock()
+                provider.appendStderr(runID: runID, data)
             }
         }
         process.terminationHandler = { [weak self] p in
+            guard let provider = self else { return }
+            let exitCode = p.terminationStatus
             io.async {
                 out.fileHandleForReading.readabilityHandler = nil
                 err.fileHandleForReading.readabilityHandler = nil
                 // Drain anything left in the pipes.
                 let rest = out.fileHandleForReading.readDataToEndOfFile()
-                if !rest.isEmpty { self?.consume(runID: runID, data: rest, onEvent: onEvent) }
+                if !rest.isEmpty { provider.consume(runID: runID, data: rest, onEvent: onEvent) }
                 let errRest = err.fileHandleForReading.readDataToEndOfFile()
-                self?.finish(runID: runID, exitCode: p.terminationStatus, extraStderr: errRest, onEvent: onEvent)
+                provider.finish(runID: runID, exitCode: exitCode, extraStderr: errRest, onEvent: onEvent)
             }
         }
 
@@ -100,7 +102,7 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
         LatencyTracer.shared.begin(.agentFirstEdit, key: runID)
         LatencyTracer.shared.begin(.agentFinished, key: runID)
         do { try process.run() } catch {
-            lock.lock(); runs[runID] = nil; lock.unlock()
+            setRun(runID, nil)
             throw CursorAgentError.launchFailed(error.localizedDescription)
         }
         state.process = process
@@ -110,11 +112,28 @@ public final class CursorCLIAgentProvider: CodingAgentProvider, @unchecked Senda
     }
 
     public func status(runID: String) async -> RunningAgentTask? {
+        currentTask(runID: runID)
+    }
+
+    public func cancel(runID: String) async throws {
+        terminateAndMarkCancelled(runID: runID)
+    }
+
+    // Synchronous helpers keep NSLock usage out of async contexts.
+    private func setRun(_ runID: String, _ state: RunState?) {
+        lock.lock(); runs[runID] = state; lock.unlock()
+    }
+
+    private func appendStderr(runID: String, _ data: Data) {
+        lock.lock(); runs[runID]?.stderr.append(data); lock.unlock()
+    }
+
+    private func currentTask(runID: String) -> RunningAgentTask? {
         lock.lock(); defer { lock.unlock() }
         return runs[runID]?.task
     }
 
-    public func cancel(runID: String) async throws {
+    private func terminateAndMarkCancelled(runID: String) {
         lock.lock()
         let state = runs[runID]
         lock.unlock()

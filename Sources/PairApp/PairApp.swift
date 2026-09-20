@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
-        let status = NSMenuItem(title: model.running ? "Pair is on — hold ⌥ Space to talk" : "Pair is off", action: nil, keyEquivalent: "")
+        let status = NSMenuItem(title: model.running ? "Pair is on — press ⌥ Space to talk, again to stop" : "Pair is off", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
         if let p = model.project {

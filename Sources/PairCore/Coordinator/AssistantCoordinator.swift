@@ -105,7 +105,7 @@ public final class AssistantCoordinator: VoiceReasoningDelegate, @unchecked Send
     public func start() async {
         deps.perception.start()
         refreshProject()
-        let cfg = VoiceSessionConfig(instructions: deps.instructions, voice: deps.voiceName, tools: ToolCatalog.all, serverVAD: deps.serverVAD, keyterms: ["Cursor", "padding", "margin", "flexbox", "Tailwind", "component", "undo", "redo"])
+        let cfg = VoiceSessionConfig(instructions: deps.instructions, voice: deps.voiceName, tools: ToolCatalog.all, serverVAD: deps.serverVAD, silenceDurationMs: 1400, vadCreatesResponse: false, keyterms: ["Cursor", "padding", "margin", "flexbox", "Tailwind", "component", "undo", "redo"])
         do {
             try await deps.voice.connect(config: cfg)
         } catch {
@@ -163,11 +163,56 @@ public final class AssistantCoordinator: VoiceReasoningDelegate, @unchecked Send
         }
     }
 
-    /// Microphone PCM16 (24 kHz mono) while the hotkey is held. Forwarded
-    /// directly — not queued — so audio never waits behind state work.
+    private let sessionLock = NSLock()
+    private var voiceSessionOpen = false
+
+    /// Press once to open a hands-free voice session; press again to close it.
+    /// While open, audio streams continuously and a pause of about 1.4s ends a turn.
+    public func toggleVoiceSession() {
+        sessionLock.lock()
+        let open = voiceSessionOpen
+        sessionLock.unlock()
+        if open { leaveVoiceSession() } else { enterVoiceSession() }
+    }
+
+    public func enterVoiceSession() {
+        sessionLock.lock(); voiceSessionOpen = true; sessionLock.unlock()
+        work.async {
+            guard self.state != .muted else {
+                self.sessionLock.lock(); self.voiceSessionOpen = false; self.sessionLock.unlock()
+                return
+            }
+            LatencyTracer.shared.begin(.hotkeyToListening)
+            self.deps.voice.beginLiveSession()
+            self.setState(.listening)
+            self.resolveTargetNow(explicit: false)
+            LatencyTracer.shared.end(.hotkeyToListening)
+            self.emit(.notice("Voice on. Speak whenever you like — press ⌥ Space again to stop."))
+        }
+    }
+
+    public func leaveVoiceSession() {
+        sessionLock.lock(); voiceSessionOpen = false; sessionLock.unlock()
+        work.async {
+            self.deps.voice.endLiveSession()
+            self.onInterrupt?()
+            if self.state != .executing { self.setState(.idle) }
+            self.emit(.notice("Voice off."))
+        }
+    }
+
+    private func isVoiceSessionOpen() -> Bool {
+        sessionLock.lock(); defer { sessionLock.unlock() }
+        return voiceSessionOpen
+    }
+
+    /// Microphone PCM16 (24 kHz mono). Forwarded directly — not queued — so audio
+    /// never waits behind state work. During a live session this includes the time
+    /// the assistant is speaking, so a barge-in is heard.
     public func appendAudio(_ pcm16: Data) {
-        guard state == .listening || state == .targeting else { return }
-        deps.voice.appendAudio(pcm16)
+        if isVoiceSessionOpen() || state == .listening || state == .targeting {
+            deps.voice.appendAudio(pcm16)
+        }
     }
 
     public func hotkeyUp() {
@@ -346,14 +391,33 @@ public final class AssistantCoordinator: VoiceReasoningDelegate, @unchecked Send
         work.async {
             let executing = self.deps.memory.actions.contains { $0.state == .running }
             if self.state == .speaking || self.state == .thinking {
-                self.setState(executing ? .executing : .idle)
+                if self.isVoiceSessionOpen() {
+                    self.setState(executing ? .executing : .listening)
+                } else {
+                    self.setState(executing ? .executing : .idle)
+                }
             }
         }
     }
 
     public func voiceProvider(_ provider: VoiceReasoningProvider, didDetectUserSpeechStart: Void) {
         onInterrupt?()
-        work.async { if self.state == .speaking { self.setState(.listening) } }
+        work.async {
+            guard self.isVoiceSessionOpen() else { return }
+            if self.state == .speaking || self.state == .thinking { self.setState(.listening) }
+        }
+    }
+
+    public func voiceProvider(_ provider: VoiceReasoningProvider, didDetectUserSpeechStop: Void) {
+        work.async {
+            guard self.isVoiceSessionOpen() else { return }
+            self.refreshProject()
+            if self.explicitTarget == nil { self.resolveTargetNow(explicit: false) }
+            let context = self.buildContext()
+            self.emit(.contextSent(context))
+            self.deps.voice.completeServerTurn(context: context)
+            if self.state == .listening || self.state == .targeting { self.setState(.thinking) }
+        }
     }
 
     public func voiceProvider(_ provider: VoiceReasoningProvider, didFail error: Error) {

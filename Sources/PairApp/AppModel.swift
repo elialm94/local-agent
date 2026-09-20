@@ -125,7 +125,7 @@ final class AppModel: ObservableObject {
             projectResolver: { world in detector.resolve(world: world) },
             checkpointStoreFactory: { root in try GitCheckpointManager(projectPath: root) }
         )
-        deps.serverVAD = false // push-to-talk; the hotkey bounds each turn
+        deps.serverVAD = true // live session: a pause ends the turn, the hotkey only opens and closes it
         let c = AssistantCoordinator(deps: deps)
         coordinator = c
         c.onEvent = { [weak self] event in Task { @MainActor in self?.handle(event) } }
@@ -179,29 +179,23 @@ final class AppModel: ObservableObject {
     // MARK: Hotkey wiring
 
     private func wireHotkey() {
-        hotkey.onHotkeyDown = { [weak self] in
+        hotkey.onVoiceSession = { [weak self] open in
             guard let self, let c = self.coordinator else { return }
-            self.perception.hotkeyHeld = true
-            self.audio.beginCapture()
-            c.hotkeyDown()
+            if open {
+                self.perception.hotkeyHeld = true
+                c.enterVoiceSession()
+                self.audio.beginCapture()
+            } else {
+                self.perception.hotkeyHeld = false
+                self.audio.endCapture()
+                c.leaveVoiceSession()
+            }
         }
-        hotkey.onHotkeyUp = { [weak self] in
-            guard let self, let c = self.coordinator else { return }
+        hotkey.onCancel = { [weak self] in
+            guard let self else { return }
             self.perception.hotkeyHeld = false
             self.audio.endCapture()
-            self.regionPreview = nil
-            c.hotkeyUp()
-        }
-        hotkey.onExplicitClick = { [weak self] p in self?.coordinator?.explicitClick(at: p) }
-        hotkey.onExplicitRegion = { [weak self] r in
-            self?.perception.setSelectedRegion(r)
-            self?.coordinator?.explicitRegion(r)
-        }
-        hotkey.onRegionPreview = { [weak self] r in self?.regionPreview = r }
-        hotkey.onCancel = { [weak self] in
-            self?.perception.hotkeyHeld = false
-            self?.audio.endCapture()
-            self?.coordinator?.cancel()
+            self.coordinator?.leaveVoiceSession()
         }
         hotkey.onObservedClick = { [weak self] p in self?.perception.noteClick(at: p) }
         hotkey.cancelRelevance = { [weak self] in

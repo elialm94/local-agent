@@ -182,6 +182,27 @@ public final class GrokVoiceProvider: VoiceReasoningProvider, @unchecked Sendabl
         enqueue(RealtimeClientEvent.audioClear)
     }
 
+    public func beginLiveSession() {
+        turnAudioBytes = 0
+        if responseInFlight { interrupt() }
+        enqueue(RealtimeClientEvent.audioClear)
+    }
+
+    public func endLiveSession() {
+        if responseInFlight { interrupt() }
+        enqueue(RealtimeClientEvent.audioClear)
+    }
+
+    public func completeServerTurn(context: String?) {
+        guard state == .connected else { return }
+        if let context { enqueue(RealtimeClientEvent.message(role: contextRole, text: context)) }
+        if !usingServerVAD { enqueue(RealtimeClientEvent.audioCommit) }
+        enqueue(RealtimeClientEvent.responseCreate)
+        awaitingFirstAudio = true
+        LatencyTracer.shared.begin(.grokFirstAudio)
+        LatencyTracer.shared.begin(.transcriptReceived)
+    }
+
     public func appendAudio(_ pcm16: Data) {
         guard state == .connected, !pcm16.isEmpty else { return }
         if turnAudioBytes == 0 { LatencyTracer.shared.end(.voiceFirstPacket) }
@@ -250,10 +271,13 @@ public final class GrokVoiceProvider: VoiceReasoningProvider, @unchecked Sendabl
         case .sessionUpdated:
             break
         case .speechStarted:
-            if responseInFlight { responseInFlight = false; delegate?.voiceProvider(self, didFinishResponse: ()) }
+            if responseInFlight {
+                enqueue(RealtimeClientEvent.responseCancel)
+                responseInFlight = false
+            }
             delegate?.voiceProvider(self, didDetectUserSpeechStart: ())
         case .speechStopped:
-            break
+            delegate?.voiceProvider(self, didDetectUserSpeechStop: ())
         case .userTranscript(let t, let final):
             if final { LatencyTracer.shared.end(.transcriptReceived) }
             delegate?.voiceProvider(self, didReceiveUserTranscript: t, isFinal: final)
@@ -292,6 +316,16 @@ public final class GrokVoiceProvider: VoiceReasoningProvider, @unchecked Sendabl
     /// leave slightly ambiguous: manual turn detection and system-role context items.
     private func handleServerError(code: String?, message: String) {
         let lower = message.lowercased()
+        if usingServerVAD, let cfg = config, cfg.silenceDurationMs > 0,
+           lower.contains("silence_duration") || lower.contains("create_response") {
+            var stripped = cfg
+            stripped.silenceDurationMs = 0
+            stripped.vadCreatesResponse = true
+            config = stripped
+            enqueue(RealtimeClientEvent.sessionUpdate(config: stripped))
+            Log.warn("grok", "server rejected VAD tuning; using its default pause detection")
+            return
+        }
         if !usingServerVAD, lower.contains("turn_detection") {
             usingServerVAD = true
             if var cfg = config {

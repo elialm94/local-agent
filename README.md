@@ -1,6 +1,6 @@
 # Pair — a voice-first AI pair programmer for macOS
 
-Point at something on your screen, hold **⌥ Space**, talk. Pair sees the UI
+Point at something on your screen, press **⌥ Space** once, and talk. Press it again when you want the microphone off. Pair sees the UI
 element under your pointer, discusses it with you through Grok Voice, and when
 you say **"do it"** hands a precise task to **Cursor**, which edits your local
 project so your dev server hot-reloads. Say **"undo that"** and the change is
@@ -92,8 +92,8 @@ identifier (`dev.pair.app`) so permissions stick.
 
 | You | Pair |
 |---|---|
-| Hover a button, **hold ⌥ Space**, say *"make this button red"* | Orb turns blue, a dashed outline shows what "this" resolves to. On release the utterance + compact screen context go to Grok. Grok records a proposal and confirms in a sentence. |
-| Not the right element? **⌥ Space + click** it | Solid outline; confidence 0.95. **⌥ Space + drag** selects a region instead. |
+| Hover a button, press **⌥ Space** once, say *"make this button red"*, then pause | Orb stays up while voice is on. After about a second of silence the utterance and compact screen context go to Grok. Grok records a proposal and confirms in a sentence. Keep talking; press **⌥ Space** again to turn the microphone off. |
+| Not the right element? Move the pointer onto it before the pause | The element under the pointer is what "this" means. Mouse clicks are never captured, so you can navigate normally. |
 | *"Do it"* | Checkpoint → task compiled → Cursor `agent` starts in your project. Orb goes orange: "Cursor: Make the Send Offer button red". Grok says "On it." and stays in the conversation. |
 | Dev server hot-reloads | Pair compares a before/after crop of the target (if screen permission) and tells Grok whether the pixels changed. Orb goes green: "done — 1 file". |
 | *"Undo that"* | Files touched by that action are restored from the checkpoint. Your own unstaged edits elsewhere are untouched. *"Redo"* re-applies. *"Go back two changes"* works. |
@@ -183,7 +183,7 @@ plaintext config.
 Concretely, in order:
 
 1. `scripts/make-app.sh` on macOS; fix any SDK mismatches (expected: minor).
-2. Hold ⌥ Space over a real Chrome button and confirm the outline lands on the right element (the debug panel's Target tab shows the candidates).
+2. Press ⌥ Space once over a real Chrome button and confirm the outline lands on the right element (the debug panel's Target tab shows the candidates). Press ⌥ Space again to leave the voice session.
 3. With `XAI_API_KEY`, confirm the Grok realtime handshake and first-audio latency; adjust event names in `RealtimeEvents.swift` if xAI's API has drifted.
 4. With Cursor CLI installed, run the full "make this red → do it → undo that" loop on a Vite app with the dev bridge enabled.
 

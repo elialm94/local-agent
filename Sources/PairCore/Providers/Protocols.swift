@@ -180,15 +180,23 @@ public struct VoiceSessionConfig: Sendable {
     /// When true the server decides turn boundaries; when false the client
     /// commits on hotkey release (push-to-talk).
     public var serverVAD: Bool
+    /// How long the user may pause, in a live session, before the turn ends.
+    /// Long enough to think or move the mouse; short enough that a reply still feels conversational.
+    public var silenceDurationMs: Int
+    /// When false, a server-VAD turn commits the audio but the client sends `response.create`
+    /// itself, after attaching fresh screen context.
+    public var vadCreatesResponse: Bool
     public var languageHint: String?
     public var keyterms: [String]
 
-    public init(instructions: String, voice: String = "eve", sampleRate: Int = 24000, tools: [ToolDefinition] = [], serverVAD: Bool = false, languageHint: String? = nil, keyterms: [String] = []) {
+    public init(instructions: String, voice: String = "eve", sampleRate: Int = 24000, tools: [ToolDefinition] = [], serverVAD: Bool = false, silenceDurationMs: Int = 1400, vadCreatesResponse: Bool = false, languageHint: String? = nil, keyterms: [String] = []) {
         self.instructions = instructions
         self.voice = voice
         self.sampleRate = sampleRate
         self.tools = tools
         self.serverVAD = serverVAD
+        self.silenceDurationMs = silenceDurationMs
+        self.vadCreatesResponse = vadCreatesResponse
         self.languageHint = languageHint
         self.keyterms = keyterms
     }
@@ -204,6 +212,8 @@ public protocol VoiceReasoningDelegate: AnyObject, Sendable {
     func voiceProvider(_ provider: VoiceReasoningProvider, didStartResponse: Void)
     func voiceProvider(_ provider: VoiceReasoningProvider, didFinishResponse: Void)
     func voiceProvider(_ provider: VoiceReasoningProvider, didDetectUserSpeechStart: Void)
+    /// Server VAD decided the user finished a phrase (after `silenceDurationMs` of quiet).
+    func voiceProvider(_ provider: VoiceReasoningProvider, didDetectUserSpeechStop: Void)
     func voiceProvider(_ provider: VoiceReasoningProvider, didFail error: Error)
 }
 
@@ -220,6 +230,13 @@ public protocol VoiceReasoningProvider: AnyObject, Sendable {
     /// Called when the user releases the hotkey. `context` is compact
     /// structured screen context injected before the model responds.
     func endUserTurn(context: String?)
+    /// Open a hands-free session. Audio streams until `endLiveSession`; the server
+    /// detects pauses. Does not end the turn.
+    func beginLiveSession()
+    /// Close a hands-free session: stop any reply and discard audio still buffered.
+    func endLiveSession()
+    /// A server-VAD pause just ended the user's phrase. Attach context and ask for a reply.
+    func completeServerTurn(context: String?)
     /// Typed-text path (debug panel / CLI); goes through the same conversation.
     func sendUserText(_ text: String, context: String?)
     func sendToolResult(callID: String, outputJSON: String)

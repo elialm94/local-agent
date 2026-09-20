@@ -125,6 +125,14 @@ final class RealtimeEventCodecTests: XCTestCase {
         XCTAssertEqual(tools.count, ToolCatalog.all.count)
         XCTAssertEqual(tools.first?["type"]?.stringValue, "function")
         XCTAssertNotNil(tools.first?["parameters"])
+        let vad = ev["session"]?["turn_detection"]
+        XCTAssertEqual(vad?["type"]?.stringValue, "server_vad")
+        XCTAssertEqual(vad?["silence_duration_ms"]?.intValue, 1400)
+        XCTAssertEqual(vad?["create_response"]?.boolValue, false)
+
+        var manual = cfg
+        manual.serverVAD = false
+        XCTAssertEqual(RealtimeClientEvent.sessionUpdate(config: manual)["session"]?["turn_detection"], JSONValue.null)
     }
 
     func testServerEventParsing() {

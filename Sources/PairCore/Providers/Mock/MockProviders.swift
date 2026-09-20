@@ -152,6 +152,9 @@ public final class MockVoiceProvider: VoiceReasoningProvider, @unchecked Sendabl
     }
 
     public func beginUserTurn() { turnBuffer.removeAll() }
+    public func beginLiveSession() { beginUserTurn() }
+    public func endLiveSession() { interrupt() }
+    public func completeServerTurn(context: String?) { endUserTurn(context: context) }
     public func appendAudio(_ pcm16: Data) { turnBuffer.append(pcm16) }
 
     public func endUserTurn(context: String?) {

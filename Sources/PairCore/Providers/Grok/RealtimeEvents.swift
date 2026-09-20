@@ -20,7 +20,20 @@ public enum RealtimeClientEvent {
             ]),
         ]
         if includeTurnDetection {
-            session["turn_detection"] = config.serverVAD ? .object(["type": .string("server_vad")]) : .null
+            if config.serverVAD {
+                var vad: [String: JSONValue] = [
+                    "type": .string("server_vad"),
+                    "threshold": .number(0.5),
+                    "prefix_padding_ms": .number(300),
+                ]
+                if config.silenceDurationMs > 0 {
+                    vad["silence_duration_ms"] = .number(Double(config.silenceDurationMs))
+                    if !config.vadCreatesResponse { vad["create_response"] = .bool(false) }
+                }
+                session["turn_detection"] = .object(vad)
+            } else {
+                session["turn_detection"] = .null
+            }
         }
         if !config.tools.isEmpty {
             session["tools"] = .array(config.tools.map(\.realtimeFunctionSpec))

@@ -5,14 +5,13 @@ import PairCore
 
 /// Global interaction via a CGEvent tap:
 ///
-///   hold Option+Space          → talk (hotkeyDown / hotkeyUp)
-///   Option+Space + click       → explicit element reference
-///   Option+Space + drag        → explicit region reference
-///   Escape (while active)      → cancel
+///   Option+Space               → toggle a hands-free voice session
+///   Escape (while the session or a reply is active) → leave the session
 ///
-/// Space key events are swallowed while Option is held so the focused app does
-/// not receive them. Ordinary clicks (hotkey not held) are observed only, to
-/// feed temporal context. Requires the Accessibility permission.
+/// The shortcut press is swallowed so the focused app does not receive that
+/// Space. Mouse events are never swallowed: while the session is open the user
+/// navigates normally, and the element under the pointer is read by perception.
+/// Requires the Accessibility permission.
 final class GlobalHotkey {
     struct Config {
         var keyCode: Int64 = Int64(kVK_Space)
@@ -22,19 +21,17 @@ final class GlobalHotkey {
     }
 
     var config = Config()
-    var onHotkeyDown: (() -> Void)?
-    var onHotkeyUp: (() -> Void)?
-    var onExplicitClick: ((Point) -> Void)?
-    var onExplicitRegion: ((Rect) -> Void)?
-    var onRegionPreview: ((Rect?) -> Void)?
+    /// `true` when the voice session should open, `false` when it should close.
+    var onVoiceSession: ((Bool) -> Void)?
     var onCancel: (() -> Void)?
     var onObservedClick: ((Point) -> Void)?
 
-    private(set) var isHeld = false
+    /// Voice session latched on. Read from the event-tap thread.
+    private(set) var sessionOpen = false
+    /// Swallow the Space key-up that belongs to the shortcut press.
+    private var swallowSpaceUp = false
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var dragOrigin: Point?
-    private var dragging = false
 
     var isInstalled: Bool { tap != nil }
 
@@ -78,63 +75,38 @@ final class GlobalHotkey {
         case .keyDown, .keyUp:
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             let hasModifier = event.flags.contains(config.modifiers)
-            if keyCode == config.keyCode && (hasModifier || isHeld) {
-                let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-                if type == .keyDown, !isHeld, !isRepeat {
-                    isHeld = true
-                    DispatchQueue.main.async { self.onHotkeyDown?() }
-                } else if type == .keyUp, isHeld {
-                    release()
-                }
-                return nil // swallow
+            if keyCode == config.keyCode && type == .keyUp && swallowSpaceUp {
+                swallowSpaceUp = false
+                return nil
             }
-            if keyCode == Int64(kVK_Escape), type == .keyDown, isHeld || onCancelIsRelevant {
-                let swallow = isHeld
-                isHeld = false; dragOrigin = nil; dragging = false
-                DispatchQueue.main.async { self.onRegionPreview?(nil); self.onCancel?() }
+            if keyCode == config.keyCode && hasModifier && type == .keyDown {
+                let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+                if !isRepeat {
+                    sessionOpen.toggle()
+                    swallowSpaceUp = true
+                    let open = sessionOpen
+                    DispatchQueue.main.async { self.onVoiceSession?(open) }
+                }
+                return nil
+            }
+            if keyCode == Int64(kVK_Escape), type == .keyDown, sessionOpen || onCancelIsRelevant {
+                let swallow = sessionOpen
+                sessionOpen = false
+                DispatchQueue.main.async { self.onCancel?() }
                 return swallow ? nil : Unmanaged.passUnretained(event)
             }
             return Unmanaged.passUnretained(event)
 
         case .flagsChanged:
-            // Releasing Option while Space is still down ends the turn too.
-            if isHeld, !event.flags.contains(config.modifiers) {
-                release()
-            }
             return Unmanaged.passUnretained(event)
 
         case .leftMouseDown:
             let p = point(of: event)
-            if isHeld {
-                dragOrigin = p
-                dragging = false
-                return nil
-            }
             DispatchQueue.main.async { self.onObservedClick?(p) }
             return Unmanaged.passUnretained(event)
 
-        case .leftMouseDragged:
-            guard isHeld, let origin = dragOrigin else { return Unmanaged.passUnretained(event) }
-            let p = point(of: event)
-            if !dragging, hypot(p.x - origin.x, p.y - origin.y) >= config.dragThreshold { dragging = true }
-            if dragging {
-                let r = Self.rect(origin, p)
-                DispatchQueue.main.async { self.onRegionPreview?(r) }
-            }
-            return nil
-
-        case .leftMouseUp:
-            guard isHeld, let origin = dragOrigin else { return Unmanaged.passUnretained(event) }
-            let p = point(of: event)
-            dragOrigin = nil
-            if dragging {
-                dragging = false
-                let r = Self.rect(origin, p)
-                DispatchQueue.main.async { self.onRegionPreview?(nil); self.onExplicitRegion?(r) }
-            } else {
-                DispatchQueue.main.async { self.onExplicitClick?(p) }
-            }
-            return nil
+        case .leftMouseDragged, .leftMouseUp:
+            return Unmanaged.passUnretained(event)
 
         default:
             return Unmanaged.passUnretained(event)
@@ -145,19 +117,8 @@ final class GlobalHotkey {
     var onCancelIsRelevant: Bool { cancelRelevance?() ?? false }
     var cancelRelevance: (() -> Bool)?
 
-    private func release() {
-        isHeld = false
-        dragOrigin = nil
-        if dragging { dragging = false; DispatchQueue.main.async { self.onRegionPreview?(nil) } }
-        DispatchQueue.main.async { self.onHotkeyUp?() }
-    }
-
     /// CGEvent locations are already top-left global coordinates.
     private func point(of event: CGEvent) -> Point {
         Point(x: event.location.x, y: event.location.y)
-    }
-
-    private static func rect(_ a: Point, _ b: Point) -> Rect {
-        Rect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 }
